@@ -58,6 +58,47 @@ O script pode ser executado sem `root` em modo `dry-run`.
 
 Use estes comandos em um Debian recém-instalado para baixar o projeto do GitHub e executar primeiro em modo seguro.
 
+### Passo Zero: Validar Data e Hora
+
+Este passo vem antes de `apt update`, `git clone` ou `curl`.
+
+Se a data do servidor estiver errada, `apt`, `git clone`, GitHub e repositórios HTTPS podem falhar com erros como:
+
+```text
+Release file is not valid yet
+server certificate verification failed
+certificate chain uses not yet valid certificate
+```
+
+Se você já caiu nesse erro, rode direto no servidor:
+
+```bash
+date
+timedatectl set-ntp true
+systemctl restart systemd-timesyncd || systemctl restart chrony || true
+sleep 10
+date
+timedatectl status
+```
+
+Se a data ainda continuar errada, ajuste manualmente para a data/hora atual antes de tentar baixar o projeto:
+
+```bash
+timedatectl set-time "YYYY-MM-DD HH:MM:SS"
+date
+```
+
+Exemplo:
+
+```bash
+timedatectl set-time "2026-05-11 14:45:00"
+date
+```
+
+Depois disso, rode novamente o `apt update` ou `git clone`.
+
+Depois de corrigir o relógio, continue com a instalação.
+
 ### Opção Recomendada: Git Clone
 
 Instalar dependências mínimas para baixar o projeto:

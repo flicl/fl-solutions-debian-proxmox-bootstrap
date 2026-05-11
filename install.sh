@@ -164,6 +164,30 @@ check_supported_host() {
   fi
 }
 
+check_clock_sanity() {
+  local current_year
+  current_year="$(date '+%Y' 2>/dev/null || printf 'unknown')"
+
+  if [[ "$current_year" =~ ^[0-9]{4}$ ]] && ((current_year < 2025)); then
+    warn "System clock looks too old: $(date -R 2>/dev/null || true)"
+    warn "APT/GitHub TLS can fail with 'certificate is not trusted' or 'Release file is not valid yet'."
+    warn "Fix NTP/time before applying. Suggested commands:"
+    warn "  timedatectl status"
+    warn "  timedatectl set-ntp true"
+    warn "  systemctl restart systemd-timesyncd || systemctl restart chrony || true"
+
+    if [[ "$APPLY" -eq 1 ]]; then
+      die "Refusing to apply while system clock looks invalid"
+    fi
+  fi
+
+  if command -v timedatectl >/dev/null 2>&1; then
+    if timedatectl show -p NTPSynchronized --value 2>/dev/null | grep -qx 'no'; then
+      warn "NTP is not synchronized according to timedatectl. Review time before production use."
+    fi
+  fi
+}
+
 confirm_apply() {
   if [[ "$APPLY" -ne 1 ]]; then
     return 0
@@ -404,6 +428,7 @@ main() {
 
   detect_os
   check_supported_host
+  check_clock_sanity
 
   printf '%s\n' "$PROJECT_NAME"
   printf 'Mode: %s\n' "$([[ "$APPLY" -eq 1 ]] && printf apply || printf dry-run)"
