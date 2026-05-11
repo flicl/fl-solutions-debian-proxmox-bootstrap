@@ -54,7 +54,57 @@ Fora do escopo:
 
 O script pode ser executado sem `root` em modo `dry-run`.
 
-## Uso Rápido
+## Instalação em Debian Novo
+
+Use estes comandos em um Debian recém-instalado para baixar o projeto do GitHub e executar primeiro em modo seguro.
+
+### Opção Recomendada: Git Clone
+
+Instalar dependências mínimas para baixar o projeto:
+
+```bash
+sudo apt update
+sudo apt install -y git ca-certificates
+```
+
+Baixar o repositório:
+
+```bash
+git clone https://github.com/flicl/fl-solutions-debian-proxmox-bootstrap.git
+cd fl-solutions-debian-proxmox-bootstrap
+```
+
+Rodar primeiro em modo simulação:
+
+```bash
+./install.sh
+```
+
+Se a saída estiver correta, aplicar:
+
+```bash
+sudo ./install.sh --apply --system
+```
+
+### Opção Rápida: Curl
+
+Use esta opção apenas se quiser baixar somente o script.
+
+```bash
+sudo apt update
+sudo apt install -y curl ca-certificates
+curl -fsSLO https://raw.githubusercontent.com/flicl/fl-solutions-debian-proxmox-bootstrap/main/install.sh
+chmod +x install.sh
+./install.sh
+```
+
+Depois de revisar o `dry-run`, aplicar:
+
+```bash
+sudo ./install.sh --apply --system
+```
+
+## Uso Rápido Local
 
 Clonar ou acessar a pasta do projeto:
 
