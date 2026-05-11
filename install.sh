@@ -73,6 +73,9 @@ Examples:
   ./install.sh --apply
   sudo ./install.sh --apply --system
   sudo ./install.sh --apply --system --fix-proxmox-repos
+
+If you are already logged in as root, omit sudo:
+  ./install.sh --apply --system --fix-proxmox-repos
 EOF
 }
 
@@ -98,6 +101,14 @@ die() {
 
 is_root() {
   [[ "${EUID}" -eq 0 ]]
+}
+
+root_install_command() {
+  if is_root; then
+    printf './install.sh --apply --system --fix-proxmox-repos'
+  else
+    printf 'sudo ./install.sh --apply --system --fix-proxmox-repos'
+  fi
 }
 
 detect_os() {
@@ -267,7 +278,7 @@ check_proxmox_repo_policy() {
 
   warn "FL Solutions default for non-subscription Proxmox is pve-no-subscription."
   warn "To fix explicitly, run:"
-  warn "  sudo ./install.sh --apply --system --fix-proxmox-repos"
+  warn "  $(root_install_command)"
 
   if [[ "$APPLY" -eq 1 ]]; then
     die "Refusing to apply packages while Proxmox Enterprise repo is active"
@@ -470,7 +481,7 @@ fix_proxmox_repos() {
     return 0
   fi
 
-  is_root || die "Fixing Proxmox repositories requires root. Re-run with sudo."
+  is_root || die "Fixing Proxmox repositories requires root. Re-run as root or with sudo."
 
   comment_proxmox_enterprise_repos
   ensure_pve_no_subscription_repo
@@ -529,7 +540,7 @@ install_packages() {
     return 0
   fi
 
-  is_root || die "Package installation requires root. Re-run with sudo or run dry-run only."
+  is_root || die "Package installation requires root. Re-run as root, use sudo if available, or run dry-run only."
   apt-get update
   apt-get install -y --no-install-recommends "${PACKAGES_TO_INSTALL[@]}"
 }
@@ -546,7 +557,7 @@ apply_shell_config() {
     fi
 
     if [[ "$file" == /etc/* ]]; then
-      is_root || die "Editing $file requires root. Re-run with sudo or omit --system."
+      is_root || die "Editing $file requires root. Re-run as root, use sudo if available, or omit --system."
     fi
 
     backup_file "$file"

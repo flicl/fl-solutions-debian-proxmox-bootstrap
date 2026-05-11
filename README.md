@@ -56,6 +56,8 @@ Fora do escopo:
 
 O script pode ser executado sem `root` em modo `dry-run`.
 
+Quando o servidor já estiver com prompt de `root`, como `root@pve1:~#`, não use `sudo`; rode o comando direto.
+
 ## Instalação em Debian Novo
 
 Use estes comandos em um Debian recém-instalado para baixar o projeto do GitHub e executar primeiro em modo seguro.
@@ -103,6 +105,8 @@ Depois de corrigir o relógio, continue com a instalação.
 
 ## Instalação Recomendada em Proxmox FL Solutions
 
+Em Proxmox, normalmente você já está como `root`. Se o prompt for `root@pve...`, rode os comandos sem `sudo`.
+
 Primeiro corrija data e hora conforme o passo zero acima. Depois baixe ou atualize a pasta do projeto:
 
 ```bash
@@ -124,7 +128,7 @@ Dry-run:
 Aplicação padrão para Proxmox FL Solutions sem subscription Enterprise:
 
 ```bash
-sudo ./install.sh --apply --system --fix-proxmox-repos
+./install.sh --apply --system --fix-proxmox-repos
 ```
 
 Essa flag comenta linhas ativas de `enterprise.proxmox.com` em `/etc/apt/sources.list.d/*.list`, cria backup antes de alterar arquivos APT, garante o repo `pve-no-subscription` e, na correção de repositórios, roda `apt-get update` sem `upgrade`, `dist-upgrade`, `full-upgrade` ou `autoremove`.
@@ -144,7 +148,7 @@ repository ... is not signed
 Nesse caso, para o padrão FL Solutions sem subscription, rode:
 
 ```bash
-sudo ./install.sh --apply --system --fix-proxmox-repos
+./install.sh --apply --system --fix-proxmox-repos
 ```
 
 ### Opção Recomendada: Git Clone
@@ -219,10 +223,16 @@ Aplicar para o usuário atual e também para `/etc/bash.bashrc`:
 sudo ./install.sh --apply --system
 ```
 
+Se já estiver como `root`:
+
+```bash
+./install.sh --apply --system
+```
+
 Aplicar em Proxmox FL Solutions sem subscription, corrigindo repo Enterprise para `pve-no-subscription`:
 
 ```bash
-sudo ./install.sh --apply --system --fix-proxmox-repos
+./install.sh --apply --system --fix-proxmox-repos
 ```
 
 Aplicar sem confirmação interativa:
@@ -238,7 +248,7 @@ sudo ./install.sh --apply --system --yes
 | `./install.sh` | Mostra o que seria feito, sem alterar o sistema. |
 | `./install.sh --apply` | Instala pacotes ausentes e gerencia `~/.bashrc`. |
 | `sudo ./install.sh --apply --system` | Também gerencia `/etc/bash.bashrc`. |
-| `sudo ./install.sh --apply --system --fix-proxmox-repos` | Em Proxmox sem subscription, desativa Enterprise, ativa `pve-no-subscription` e aplica o bootstrap. |
+| `./install.sh --apply --system --fix-proxmox-repos` | Em Proxmox logado como `root`, desativa Enterprise, ativa `pve-no-subscription` e aplica o bootstrap. |
 | `sudo ./install.sh --apply --system --yes` | Aplica sem prompt interativo. Use apenas em automação revisada. |
 
 ## Segurança Operacional
