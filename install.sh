@@ -7,10 +7,12 @@ BEGIN_MARKER="# BEGIN ${MARKER_NAME}"
 END_MARKER="# END ${MARKER_NAME}"
 BACKUP_SUFFIX="fl-solutions"
 LOG_FILE="/tmp/fl-solutions-bootstrap.log"
+PVE_NO_SUBSCRIPTION_FILE="/etc/apt/sources.list.d/pve-no-subscription.list"
 
 APPLY=0
 ASSUME_YES=0
 SYSTEM_SCOPE=0
+FIX_PROXMOX_REPOS=0
 
 REQUIRED_PACKAGES=(
   apt-transport-https
@@ -60,15 +62,17 @@ Usage:
   ./install.sh [options]
 
 Options:
-  --apply          Apply changes. Without this, the script only shows a dry-run.
-  --yes            Do not ask for interactive confirmation. Requires --apply.
-  --system         Also manage /etc/bash.bashrc. Default: current user's ~/.bashrc only.
-  --help           Show this help.
+  --apply              Apply changes. Without this, the script only shows a dry-run.
+  --yes                Do not ask for interactive confirmation. Requires --apply.
+  --system             Also manage /etc/bash.bashrc. Default: current user's ~/.bashrc only.
+  --fix-proxmox-repos  On Proxmox, disable Enterprise APT repos and enable pve-no-subscription.
+  --help               Show this help.
 
 Examples:
   ./install.sh
   ./install.sh --apply
   sudo ./install.sh --apply --system
+  sudo ./install.sh --apply --system --fix-proxmox-repos
 EOF
 }
 
@@ -102,10 +106,12 @@ detect_os() {
     . /etc/os-release
     OS_ID="${ID:-unknown}"
     OS_VERSION="${VERSION_ID:-unknown}"
+    OS_CODENAME="${VERSION_CODENAME:-unknown}"
     OS_PRETTY="${PRETTY_NAME:-unknown}"
   else
     OS_ID="unknown"
     OS_VERSION="unknown"
+    OS_CODENAME="unknown"
     OS_PRETTY="unknown"
   fi
 
@@ -135,6 +141,9 @@ parse_args() {
         ;;
       --system)
         SYSTEM_SCOPE=1
+        ;;
+      --fix-proxmox-repos)
+        FIX_PROXMOX_REPOS=1
         ;;
       --help|-h)
         usage
@@ -188,6 +197,83 @@ check_clock_sanity() {
   fi
 }
 
+active_apt_source_has() {
+  local file="$1"
+  local pattern="$2"
+
+  [[ -r "$file" ]] || return 1
+  grep -Eq "^[[:space:]]*deb(-src)?[[:space:]].*${pattern}" "$file"
+}
+
+apt_source_files() {
+  local file
+
+  if [[ -f /etc/apt/sources.list ]]; then
+    printf '%s\n' /etc/apt/sources.list
+  fi
+
+  for file in /etc/apt/sources.list.d/*.list; do
+    [[ -e "$file" ]] || continue
+    printf '%s\n' "$file"
+  done
+}
+
+detect_proxmox_repos() {
+  local file
+
+  PROXMOX_ENTERPRISE_FILES=()
+  PROXMOX_HAS_ENTERPRISE_REPO=0
+  PROXMOX_HAS_NO_SUBSCRIPTION_REPO=0
+
+  while IFS= read -r file; do
+    if [[ "$file" == /etc/apt/sources.list.d/*.list ]] \
+      && active_apt_source_has "$file" 'enterprise\.proxmox\.com'; then
+      PROXMOX_ENTERPRISE_FILES+=("$file")
+      PROXMOX_HAS_ENTERPRISE_REPO=1
+    fi
+
+    if active_apt_source_has "$file" 'pve-no-subscription'; then
+      PROXMOX_HAS_NO_SUBSCRIPTION_REPO=1
+    fi
+  done < <(apt_source_files)
+}
+
+print_proxmox_repo_status() {
+  [[ "$IS_PROXMOX" -eq 1 ]] || return 0
+
+  printf 'Proxmox Enterprise repo active: %s\n' "$([[ "$PROXMOX_HAS_ENTERPRISE_REPO" -eq 1 ]] && printf yes || printf no)"
+  printf 'Proxmox pve-no-subscription repo active: %s\n' "$([[ "$PROXMOX_HAS_NO_SUBSCRIPTION_REPO" -eq 1 ]] && printf yes || printf no)"
+
+  if [[ "$PROXMOX_HAS_ENTERPRISE_REPO" -eq 1 ]]; then
+    print_list "Proxmox Enterprise source files:" "${PROXMOX_ENTERPRISE_FILES[@]}"
+  fi
+}
+
+check_proxmox_repo_policy() {
+  [[ "$IS_PROXMOX" -eq 1 ]] || return 0
+
+  detect_proxmox_repos
+
+  if [[ "$PROXMOX_HAS_ENTERPRISE_REPO" -ne 1 ]]; then
+    return 0
+  fi
+
+  warn "Active Proxmox Enterprise repository detected."
+  warn "Without a valid Enterprise subscription, APT can fail with 401 Unauthorized or 'repository ... is not signed'."
+
+  if [[ "$FIX_PROXMOX_REPOS" -eq 1 ]]; then
+    return 0
+  fi
+
+  warn "FL Solutions default for non-subscription Proxmox is pve-no-subscription."
+  warn "To fix explicitly, run:"
+  warn "  sudo ./install.sh --apply --system --fix-proxmox-repos"
+
+  if [[ "$APPLY" -eq 1 ]]; then
+    die "Refusing to apply packages while Proxmox Enterprise repo is active"
+  fi
+}
+
 confirm_apply() {
   if [[ "$APPLY" -ne 1 ]]; then
     return 0
@@ -199,7 +285,8 @@ Impact warning:
 - This script can install APT packages.
 - This script can edit shell startup files using a managed block.
 - It does not run apt upgrade, dist-upgrade, full-upgrade or autoremove.
-- It does not change Proxmox repositories, network, storage, cluster, firewall or services.
+- It only changes Proxmox repositories when --fix-proxmox-repos is explicit.
+- It does not change network, storage, cluster, firewall or services.
 - Review the dry-run output before applying on production servers.
 EOF
 
@@ -316,6 +403,81 @@ backup_file() {
   info "Backup created: $backup"
 }
 
+proxmox_no_subscription_line() {
+  if [[ "$OS_CODENAME" == "unknown" || -z "$OS_CODENAME" ]]; then
+    die "Could not detect Debian codename for pve-no-subscription repository"
+  fi
+
+  printf 'deb http://download.proxmox.com/debian/pve %s pve-no-subscription\n' "$OS_CODENAME"
+}
+
+comment_proxmox_enterprise_repos() {
+  local file tmp
+
+  for file in "${PROXMOX_ENTERPRISE_FILES[@]}"; do
+    [[ -w "$file" ]] || die "Cannot write $file"
+    backup_file "$file"
+    tmp="$(mktemp)"
+    awk '
+      /^[[:space:]]*deb(-src)?[[:space:]].*enterprise\.proxmox\.com/ {
+        print "# FL Solutions disabled Enterprise repo: " $0
+        next
+      }
+      { print }
+    ' "$file" > "$tmp"
+    cat "$tmp" > "$file"
+    rm -f "$tmp"
+    info "Disabled Proxmox Enterprise repo lines in $file"
+  done
+}
+
+ensure_pve_no_subscription_repo() {
+  local desired tmp
+
+  desired="$(proxmox_no_subscription_line)"
+
+  if [[ ! -e "$PVE_NO_SUBSCRIPTION_FILE" && "$PROXMOX_HAS_NO_SUBSCRIPTION_REPO" -eq 1 ]]; then
+    info "pve-no-subscription repo already exists in another APT source file"
+    return 0
+  fi
+
+  if [[ -e "$PVE_NO_SUBSCRIPTION_FILE" ]]; then
+    if grep -Fxq "$desired" "$PVE_NO_SUBSCRIPTION_FILE"; then
+      info "pve-no-subscription repo already configured: $PVE_NO_SUBSCRIPTION_FILE"
+      return 0
+    fi
+    backup_file "$PVE_NO_SUBSCRIPTION_FILE"
+  fi
+
+  tmp="$(mktemp)"
+  {
+    printf '# FL Solutions: Proxmox free repository for hosts without Enterprise subscription.\n'
+    printf '%s\n' "$desired"
+  } > "$tmp"
+  install -m 0644 "$tmp" "$PVE_NO_SUBSCRIPTION_FILE"
+  rm -f "$tmp"
+  info "pve-no-subscription repo configured: $PVE_NO_SUBSCRIPTION_FILE"
+}
+
+fix_proxmox_repos() {
+  [[ "$IS_PROXMOX" -eq 1 ]] || return 0
+  [[ "$FIX_PROXMOX_REPOS" -eq 1 ]] || return 0
+
+  if [[ "$APPLY" -ne 1 ]]; then
+    info "Dry-run: would disable active Enterprise repo lines with backup"
+    info "Dry-run: would ensure pve-no-subscription repo in $PVE_NO_SUBSCRIPTION_FILE"
+    info "Dry-run: would run apt-get update after repository changes"
+    return 0
+  fi
+
+  is_root || die "Fixing Proxmox repositories requires root. Re-run with sudo."
+
+  comment_proxmox_enterprise_repos
+  ensure_pve_no_subscription_repo
+  apt-get update
+  detect_proxmox_repos
+}
+
 write_managed_block() {
   local file="$1"
   local tmp
@@ -429,6 +591,7 @@ main() {
   detect_os
   check_supported_host
   check_clock_sanity
+  check_proxmox_repo_policy
 
   printf '%s\n' "$PROJECT_NAME"
   printf 'Mode: %s\n' "$([[ "$APPLY" -eq 1 ]] && printf apply || printf dry-run)"
@@ -436,6 +599,7 @@ main() {
   printf 'Proxmox detected: %s\n' "$([[ "$IS_PROXMOX" -eq 1 ]] && printf yes || printf no)"
   if [[ "$IS_PROXMOX" -eq 1 ]]; then
     printf 'Proxmox version: %s\n' "$PROXMOX_VERSION"
+    print_proxmox_repo_status
   fi
 
   collect_packages
@@ -450,6 +614,14 @@ main() {
   print_list "Shell files in scope:" "$(target_files)"
 
   confirm_apply
+  fix_proxmox_repos
+
+  if [[ "$APPLY" -eq 1 && "$FIX_PROXMOX_REPOS" -eq 1 ]]; then
+    collect_packages
+    print_list "Required packages to install after Proxmox repo check:" "${PACKAGES_TO_INSTALL[@]}"
+    print_list "Required packages unavailable after Proxmox repo check:" "${PACKAGES_UNAVAILABLE[@]}"
+  fi
+
   install_packages
   apply_shell_config
 

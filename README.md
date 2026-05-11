@@ -6,7 +6,8 @@ Este projeto nasceu para padronizar o ambiente base usado em rotinas de administ
 
 > [!WARNING]
 > Execute primeiro em modo `dry-run`. Em servidores de produção, revise a saída antes de usar `--apply`.
-> O script não altera rede, storage, cluster, firewall, repositórios Proxmox, serviços críticos ou ciclo de upgrade do sistema.
+> O script só altera repositórios Proxmox quando `--fix-proxmox-repos` for passado explicitamente.
+> Não use `--fix-proxmox-repos` em servidor com subscription Enterprise válida.
 
 ## Visão Geral
 
@@ -17,7 +18,8 @@ Principais características:
 - `dry-run` por padrão.
 - Instala somente pacotes ausentes.
 - Detecta pacotes já instalados.
-- Detecta Proxmox sem alterar configurações do Proxmox.
+- Detecta Proxmox e bloqueia aplicação quando o repo Enterprise estiver ativo sem correção explícita.
+- Pode corrigir repositórios Proxmox para `pve-no-subscription` com `--fix-proxmox-repos`.
 - Usa bloco gerenciado para ajustes de shell.
 - Cria backup antes de qualquer alteração real em arquivo.
 - Preserva customizações manuais fora do bloco gerenciado.
@@ -41,7 +43,7 @@ Fora do escopo:
 - tuning de kernel;
 - configuração de rede;
 - configuração de cluster Proxmox;
-- alteração de repositórios APT;
+- alteração geral de repositórios APT fora da correção explícita de Proxmox;
 - atualização de versão do Debian ou Proxmox;
 - instalação de stack de monitoramento, backup ou virtualização.
 
@@ -98,6 +100,52 @@ date
 Depois disso, rode novamente o `apt update` ou `git clone`.
 
 Depois de corrigir o relógio, continue com a instalação.
+
+## Instalação Recomendada em Proxmox FL Solutions
+
+Primeiro corrija data e hora conforme o passo zero acima. Depois baixe ou atualize a pasta do projeto:
+
+```bash
+if [ -d fl-solutions-debian-proxmox-bootstrap/.git ]; then
+  cd fl-solutions-debian-proxmox-bootstrap
+  git pull --ff-only
+else
+  git clone https://github.com/flicl/fl-solutions-debian-proxmox-bootstrap.git
+  cd fl-solutions-debian-proxmox-bootstrap
+fi
+```
+
+Dry-run:
+
+```bash
+./install.sh
+```
+
+Aplicação padrão para Proxmox FL Solutions sem subscription Enterprise:
+
+```bash
+sudo ./install.sh --apply --system --fix-proxmox-repos
+```
+
+Essa flag comenta linhas ativas de `enterprise.proxmox.com` em `/etc/apt/sources.list.d/*.list`, cria backup antes de alterar arquivos APT, garante o repo `pve-no-subscription` e, na correção de repositórios, roda `apt-get update` sem `upgrade`, `dist-upgrade`, `full-upgrade` ou `autoremove`.
+
+Não use `--fix-proxmox-repos` se o servidor tiver subscription Enterprise válida.
+
+### Erro de Repo Enterprise em Proxmox
+
+Erros como estes normalmente indicam repo Enterprise ativo sem subscription:
+
+```text
+401 Unauthorized
+enterprise.proxmox.com
+repository ... is not signed
+```
+
+Nesse caso, para o padrão FL Solutions sem subscription, rode:
+
+```bash
+sudo ./install.sh --apply --system --fix-proxmox-repos
+```
 
 ### Opção Recomendada: Git Clone
 
@@ -171,6 +219,12 @@ Aplicar para o usuário atual e também para `/etc/bash.bashrc`:
 sudo ./install.sh --apply --system
 ```
 
+Aplicar em Proxmox FL Solutions sem subscription, corrigindo repo Enterprise para `pve-no-subscription`:
+
+```bash
+sudo ./install.sh --apply --system --fix-proxmox-repos
+```
+
 Aplicar sem confirmação interativa:
 
 ```bash
@@ -184,6 +238,7 @@ sudo ./install.sh --apply --system --yes
 | `./install.sh` | Mostra o que seria feito, sem alterar o sistema. |
 | `./install.sh --apply` | Instala pacotes ausentes e gerencia `~/.bashrc`. |
 | `sudo ./install.sh --apply --system` | Também gerencia `/etc/bash.bashrc`. |
+| `sudo ./install.sh --apply --system --fix-proxmox-repos` | Em Proxmox sem subscription, desativa Enterprise, ativa `pve-no-subscription` e aplica o bootstrap. |
 | `sudo ./install.sh --apply --system --yes` | Aplica sem prompt interativo. Use apenas em automação revisada. |
 
 ## Segurança Operacional
@@ -196,8 +251,10 @@ Ele faz:
 - mostra pacotes já instalados;
 - mostra pacotes que seriam instalados;
 - cria backup antes de editar arquivos;
+- em Proxmox, detecta repo Enterprise ativo;
+- com `--fix-proxmox-repos`, comenta Enterprise e garante `pve-no-subscription`;
 - valida sintaxe Bash depois das alterações;
-- edita apenas blocos claramente marcados.
+- edita configuração de shell apenas em blocos claramente marcados.
 
 Ele não faz:
 
@@ -205,8 +262,7 @@ Ele não faz:
 - `apt full-upgrade`;
 - `apt dist-upgrade`;
 - `apt autoremove`;
-- alteração de repositórios APT;
-- alteração de repositórios Proxmox;
+- alteração de repositórios Proxmox sem `--fix-proxmox-repos`;
 - reinício de serviços;
 - alteração de shell padrão;
 - alteração de interfaces, bridges, VLANs ou firewall;
@@ -226,7 +282,14 @@ Com `--system`:
 /etc/bash.bashrc
 ```
 
-As alterações ficam sempre dentro do bloco:
+Com `--fix-proxmox-repos` em Proxmox:
+
+```text
+/etc/apt/sources.list.d/*.list
+/etc/apt/sources.list.d/pve-no-subscription.list
+```
+
+As alterações de shell ficam sempre dentro do bloco:
 
 ```text
 # BEGIN FL SOLUTIONS MANAGED BLOCK
