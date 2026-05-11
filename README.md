@@ -1,38 +1,80 @@
 # FL Solutions Debian/Proxmox Bootstrap
 
-Script Bash para preparar ambientes Debian/Proxmox com ferramentas básicas de terminal, diagnóstico e ajustes seguros de shell para uso diário.
+Bootstrap seguro e idempotente para preparar servidores Debian e Proxmox com ferramentas essenciais de operação, diagnóstico e produtividade em terminal.
+
+Este projeto nasceu para padronizar o ambiente base usado em rotinas de administração Linux sem assumir que o servidor está vazio, sem sobrescrever customizações existentes e sem executar mudanças agressivas em produção.
 
 > [!WARNING]
-> Use primeiro em modo `dry-run`. Em produção, revise a saída antes de aplicar. O script não altera rede, storage, cluster, firewall, repositórios Proxmox nem executa `upgrade`.
+> Execute primeiro em modo `dry-run`. Em servidores de produção, revise a saída antes de usar `--apply`.
+> O script não altera rede, storage, cluster, firewall, repositórios Proxmox, serviços críticos ou ciclo de upgrade do sistema.
 
-## Objetivo
+## Visão Geral
 
-Padronizar um conjunto mínimo de ferramentas e melhorias de terminal em servidores Debian/Proxmox, mantendo idempotência, backup e rollback simples.
+O `install.sh` prepara um ambiente Debian/Proxmox com ferramentas comuns de terminal, diagnóstico e operação diária. Ele foi pensado para ser simples de auditar, seguro para repetir e fácil de reverter.
 
-## Escopo do MVP
+Principais características:
 
-- Instalar pacotes básicos de administração e diagnóstico.
-- Detectar pacotes já instalados antes de instalar.
-- Configurar histórico Bash, `Ctrl+R` via `fzf`, `bash-completion`, aliases com cor e GRC.
-- Editar somente blocos marcados da FL Solutions.
-- Criar backup antes de alterar arquivos.
-- Executar em `dry-run` por padrão.
+- `dry-run` por padrão.
+- Instala somente pacotes ausentes.
+- Detecta pacotes já instalados.
+- Detecta Proxmox sem alterar configurações do Proxmox.
+- Usa bloco gerenciado para ajustes de shell.
+- Cria backup antes de qualquer alteração real em arquivo.
+- Preserva customizações manuais fora do bloco gerenciado.
+- Recusa aplicação em hosts sem APT/dpkg.
 
-## Uso
+## Escopo
 
-Dry-run, sem alterar o sistema:
+Incluído no MVP:
+
+- instalação de ferramentas básicas de administração e diagnóstico;
+- configuração conservadora de Bash history;
+- integração com `fzf` para pesquisa no histórico via `Ctrl+R`;
+- carregamento de `bash-completion` quando disponível;
+- aliases seguros para cor em comandos comuns;
+- integração com `grc` para melhorar leitura de saídas;
+- documentação de uso, validação e rollback.
+
+Fora do escopo:
+
+- hardening completo de sistema;
+- tuning de kernel;
+- configuração de rede;
+- configuração de cluster Proxmox;
+- alteração de repositórios APT;
+- atualização de versão do Debian ou Proxmox;
+- instalação de stack de monitoramento, backup ou virtualização.
+
+## Requisitos
+
+- Debian ou Proxmox baseado em Debian.
+- Bash.
+- APT/dpkg.
+- Permissão de `root` apenas quando for instalar pacotes ou alterar `/etc/bash.bashrc`.
+
+O script pode ser executado sem `root` em modo `dry-run`.
+
+## Uso Rápido
+
+Clonar ou acessar a pasta do projeto:
+
+```bash
+cd fl-solutions-debian-proxmox-bootstrap
+```
+
+Executar simulação sem alterar o sistema:
 
 ```bash
 ./install.sh
 ```
 
-Aplicar somente para o usuário atual:
+Aplicar para o usuário atual:
 
 ```bash
 ./install.sh --apply
 ```
 
-Aplicar para o usuário atual e também `/etc/bash.bashrc`:
+Aplicar para o usuário atual e também para `/etc/bash.bashrc`:
 
 ```bash
 sudo ./install.sh --apply --system
@@ -44,48 +86,153 @@ Aplicar sem confirmação interativa:
 sudo ./install.sh --apply --system --yes
 ```
 
-## O Que o Script Não Faz
+## Modos de Execução
 
-- Não executa `apt upgrade`, `apt full-upgrade`, `apt dist-upgrade` ou `apt autoremove`.
-- Não altera repositórios APT ou Proxmox.
-- Não reinicia serviços.
-- Não muda shell padrão.
-- Não altera rede, bridge, firewall, storage, cluster ou HA.
-- Não sobrescreve customizações existentes fora do bloco gerenciado.
+| Comando | Efeito |
+| --- | --- |
+| `./install.sh` | Mostra o que seria feito, sem alterar o sistema. |
+| `./install.sh --apply` | Instala pacotes ausentes e gerencia `~/.bashrc`. |
+| `sudo ./install.sh --apply --system` | Também gerencia `/etc/bash.bashrc`. |
+| `sudo ./install.sh --apply --system --yes` | Aplica sem prompt interativo. Use apenas em automação revisada. |
 
-## Bloco Gerenciado
+## Segurança Operacional
 
-As alterações de shell ficam entre:
+O script foi desenhado para não causar impacto inesperado em servidores já em uso.
+
+Ele faz:
+
+- verifica pacotes antes de instalar;
+- mostra pacotes já instalados;
+- mostra pacotes que seriam instalados;
+- cria backup antes de editar arquivos;
+- valida sintaxe Bash depois das alterações;
+- edita apenas blocos claramente marcados.
+
+Ele não faz:
+
+- `apt upgrade`;
+- `apt full-upgrade`;
+- `apt dist-upgrade`;
+- `apt autoremove`;
+- alteração de repositórios APT;
+- alteração de repositórios Proxmox;
+- reinício de serviços;
+- alteração de shell padrão;
+- alteração de interfaces, bridges, VLANs ou firewall;
+- alteração de storage, cluster, HA ou configurações PVE.
+
+## Arquivos Alterados
+
+Por padrão:
+
+```text
+~/.bashrc
+```
+
+Com `--system`:
+
+```text
+/etc/bash.bashrc
+```
+
+As alterações ficam sempre dentro do bloco:
 
 ```text
 # BEGIN FL SOLUTIONS MANAGED BLOCK
 # END FL SOLUTIONS MANAGED BLOCK
 ```
 
-Se o bloco já existir, ele é substituído. Configurações manuais fora dele são preservadas.
+Se o bloco já existir, ele é atualizado. Conteúdo fora desse bloco é preservado.
 
-## Pacotes Principais
+## Backup e Rollback
 
-```text
-grc fzf bash-completion curl wget vim htop iotop iftop nload ncdu tree tmux screen rsync git jq dnsutils net-tools iproute2 tcpdump mtr-tiny traceroute lsof strace unzip zip ca-certificates apt-transport-https
-```
-
-Pacotes opcionais são detectados, mas não instalados por padrão:
+Antes de alterar um arquivo, o script cria um backup com timestamp:
 
 ```text
-btop ripgrep fd-find bat lsd
+arquivo.bak.fl-solutions-YYYYmmdd-HHMMSS
 ```
 
-## Validação
+Exemplo:
 
-Após aplicar, valide:
+```text
+~/.bashrc.bak.fl-solutions-20260511-140000
+```
+
+Para rollback, remova o bloco gerenciado ou restaure o backup completo.
+
+Guia detalhado:
+
+```text
+docs/rollback.md
+```
+
+## Pacotes
+
+Pacotes principais instalados quando ausentes:
+
+```text
+apt-transport-https
+bash-completion
+ca-certificates
+curl
+dnsutils
+fzf
+git
+grc
+htop
+iftop
+iotop
+iproute2
+jq
+lsof
+mtr-tiny
+ncdu
+net-tools
+nload
+rsync
+screen
+strace
+tcpdump
+tmux
+traceroute
+tree
+unzip
+vim
+wget
+zip
+```
+
+Pacotes opcionais detectados, mas não instalados por padrão:
+
+```text
+bat
+btop
+fd-find
+lsd
+ripgrep
+```
+
+## Validação Pós-Execução
+
+Valide os comandos principais:
 
 ```bash
 command -v grc
 command -v fzf
 command -v curl
 command -v git
+```
+
+Valide arquivos de shell:
+
+```bash
 bash -n ~/.bashrc
+```
+
+Se usou `--system`:
+
+```bash
+sudo bash -n /etc/bash.bashrc
 ```
 
 Em Proxmox:
@@ -95,10 +242,47 @@ command -v pveversion
 pveversion
 ```
 
-## Rollback
+## Desenvolvimento
 
-Consulte [docs/rollback.md](docs/rollback.md).
+Validação recomendada antes de publicar mudanças:
+
+```bash
+bash -n install.sh
+shellcheck install.sh
+./install.sh
+```
+
+Teste de idempotência em ambiente descartável:
+
+```bash
+sudo ./install.sh --apply --system
+sudo ./install.sh --apply --system
+```
+
+A segunda execução não deve duplicar blocos nem reinstalar pacotes já presentes.
+
+## Estrutura do Projeto
+
+```text
+.
+├── install.sh
+├── README.md
+├── CHANGELOG.md
+├── LICENSE
+├── docs/
+│   ├── debian.md
+│   ├── proxmox.md
+│   └── rollback.md
+└── tests/
+    └── shellcheck.md
+```
+
+## Status
+
+Versão inicial: `0.1.0`
+
+O projeto está pronto para validação em laboratório Debian/Proxmox antes de uso em produção.
 
 ## Licença
 
-MIT. Consulte [LICENSE](LICENSE).
+Distribuído sob licença MIT. Consulte [LICENSE](LICENSE).
